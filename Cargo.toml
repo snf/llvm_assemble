@@ -1,0 +1,8 @@
+[package]
+name = "llvm_assemble"
+version = "0.1.0"
+authors = ["snf <snf@users.noreply.github.com>"]
+build = "build.rs"
+
+[dependencies]
+libc = "*"
