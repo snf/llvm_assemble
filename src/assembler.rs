@@ -18,7 +18,8 @@ mod extern_def {
     #[link(name = "assemble")]
     extern "C" {
         pub fn assemble(arch: Enum_Arch, instructions: *const ::libc::c_char,
-                        out: *mut byte, out_len: *mut size_t) -> ::libc::c_int;
+                        out: *mut *mut byte, out_len: *mut size_t) -> ::libc::c_int;
+        pub fn free_vec(vec: *mut byte);
     }
 }
 
@@ -50,25 +51,28 @@ impl Arch {
 pub fn assemble(arch: Arch, input: &str) -> Option<Vec<u8>> {
     use std::ffi::CString;
     use std::slice;
+    use std::mem;
     use libc;
 
     let e_arch = arch.to_c();
     let ins = CString::new(input).unwrap();
 
     unsafe {
-        let mut out_len = 0x100;
-        let out_arr: *mut u8 = libc::malloc(out_len) as (*mut u8);
+        let mut out_len = 0;
+        let out_arr: *mut *mut u8 =
+            libc::malloc(mem::size_of::<usize>() as libc::size_t)
+            as *mut *mut u8;
 
         let res = extern_def::assemble(e_arch, ins.as_ptr(), out_arr, &mut out_len);
         if res == 0 {
-            Some(slice::from_raw_parts(out_arr, out_len as usize).to_vec())
+            let vec = Some(
+                slice::from_raw_parts(*out_arr, out_len as usize).to_vec());
+
+            extern_def::free_vec(*out_arr);
+            libc::free(out_arr as *mut libc::c_void);
+            vec
         } else {
             None
         }
     }
-}
-
-#[test]
-fn test_assemble() {
-    assert_eq!(assemble(Arch::X86, "int3").unwrap(), [0xcc]);
 }

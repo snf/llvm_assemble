@@ -52,7 +52,8 @@ extern "C" {
     ppc32,
   };
 
-  int assemble(enum Arch arch, const char *instructions, byte *out, size_t *out_len);
+  void free_vec(byte *vec);
+  int assemble(enum Arch arch, const char *instructions, byte **out, size_t *out_len);
 
 #ifdef __cplusplus
 }

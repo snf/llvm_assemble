@@ -314,7 +314,11 @@ static int assemble_llvm(StringRef &arch, StringRef &input_str, std::vector<byte
   return Res;
 }
 
-int assemble(enum Arch arch, const char *instructions, byte *out, size_t *out_len) {
+void free_vec(byte *vec) {
+  free(vec);
+}
+
+int assemble(enum Arch arch, const char *instructions, byte **out, size_t *out_len) {
   StringRef s_arch;
   std::vector<byte> out_vec;
 
@@ -351,13 +355,12 @@ int assemble(enum Arch arch, const char *instructions, byte *out, size_t *out_le
     return -1;
   }
 
-  if (*out_len >= out_vec.size()) {
-    memcpy(out, out_vec.data(), out_vec.size());
-    *out_len = out_vec.size();
-    return 0;
-  } else {
-    return -1;
-  }
+  *out = (byte *)malloc(out_vec.size());
+  *out_len = out_vec.size();
+
+  memcpy(*out, out_vec.data(), out_vec.size());
+
+  return 0;
 }
 
 /*
