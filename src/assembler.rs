@@ -35,8 +35,8 @@ pub enum Arch {
 }
 
 impl Arch {
-    pub fn to_c(self) -> u32 {
-        match self {
+    pub fn to_c(&self) -> u32 {
+        match *self {
             Arch::X86 => extern_def::x86,
             Arch::X86_64 => extern_def::x86_64,
             Arch::Mips => extern_def::mips,
