@@ -5,4 +5,4 @@ authors = ["snf <snf@users.noreply.github.com>"]
 build = "build.rs"
 
 [dependencies]
-libc = "*"
+libc = "0.2"
