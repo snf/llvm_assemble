@@ -32,16 +32,17 @@ public:
   std::unique_ptr<MCCodeEmitter> Emitter;
   std::unique_ptr<MCAsmBackend> AsmBackend;
   std::vector<byte> &OutMb;
+  bool *Failed;
   size_t pos = 0;
 
   MCBinaryStreamer(MCContext &Context, MCAsmBackend *TAB, raw_pwrite_stream &OS,
-		   MCCodeEmitter *emitter, std::vector<byte> &out_mb)
+		   MCCodeEmitter *emitter, std::vector<byte> &out_mb, bool *failed)
     : MCStreamer(Context), OS(OS), MAI(Context.getAsmInfo()),
-      Emitter(emitter), AsmBackend(TAB), OutMb(out_mb) {
+      Emitter(emitter), AsmBackend(TAB), OutMb(out_mb), Failed(failed) {
     OS << "starting";
     OS << '\n';
   }
-  
+
   bool EmitSymbolAttribute(MCSymbol *Symbol,
 			   MCSymbolAttr Attribute) { return false; }
 
@@ -68,15 +69,20 @@ public:
     for (unsigned i = 0, e = Code.size() * 8; i != e; ++i)
       FixupMap[i] = 0;
 
-    for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
-      MCFixup &F = Fixups[i];
-      const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
-      for (unsigned j = 0; j != Info.TargetSize; ++j) {
-	unsigned Index = F.getOffset() * 8 + Info.TargetOffset + j;
-	assert(Index < Code.size() * 8 && "Invalid offset in fixup!");
-	FixupMap[Index] = 1 + i;
-      }
+    if (Fixups.size() != 0 || Code.size() == 0) {
+      *Failed = true;
+      return;
     }
+    // XXX_ [0] disabling fixups because AsmBackend is null
+    // for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
+    //   MCFixup &F = Fixups[i];
+    //   const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
+    //   for (unsigned j = 0; j != Info.TargetSize; ++j) {
+    //     unsigned Index = F.getOffset() * 8 + Info.TargetOffset + j;
+    //     assert(Index < Code.size() * 8 && "Invalid offset in fixup!");
+    //     FixupMap[Index] = 1 + i;
+    //   }
+    // }
 
     // FIXME: Note the fixup comments for Thumb2 are completely bogus since the
     // high order halfword of a 32-bit Thumb2 instruction is emitted first.
@@ -87,7 +93,7 @@ public:
       // Copy to memory buffer
       //OutMb[pos] = Code[i];
       OutMb.push_back(Code[i]);
-      
+
       pos++;
 
       if (i)
@@ -136,12 +142,13 @@ public:
     }
     OS << "]\n";
 
-    for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
-      MCFixup &F = Fixups[i];
-      const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
-      OS << "  fixup " << char('A' + i) << " - " << "offset: " << F.getOffset()
-	 << ", value: " << *F.getValue() << ", kind: " << Info.Name << "\n";
-    }
+    // XXX_ disabling fixups because [0]
+    // for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
+    //   MCFixup &F = Fixups[i];
+    //   const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
+    //   OS << "  fixup " << char('A' + i) << " - " << "offset: " << F.getOffset()
+    //      << ", value: " << *F.getValue() << ", kind: " << Info.Name << "\n";
+    // }
   }
 };
 
@@ -253,7 +260,7 @@ static int assemble_llvm(StringRef &arch, StringRef &input_str, std::vector<byte
     BufferPtr = MemoryBuffer::getMemBuffer(input_str);
   }
 
-  
+
   SourceMgr SrcMgr;
 
   // Tell SrcMgr about this buffer, which is what the parser will pick up.
@@ -304,12 +311,17 @@ static int assemble_llvm(StringRef &arch, StringRef &input_str, std::vector<byte
 
   out_bytes.reserve(0x100);
 
-  Str.reset(new MCBinaryStreamer(Ctx, MAB, *OS, CE, out_bytes));
+  bool failed = false;
+  Str.reset(new MCBinaryStreamer(Ctx, MAB, *OS, CE, out_bytes, &failed));
 
   int Res = 1;
   // XXX_ remember the last arg is only for X86
   Res = AssembleInput(TheTarget, SrcMgr, Ctx, *Str, *MAI, *STI,
 		      *MCII, MCOptions, 1);
+
+  if (failed == true) {
+    return -1;
+  }
 
   return Res;
 }
@@ -367,8 +379,8 @@ int assemble(enum Arch arch, const char *instructions, byte **out, size_t *out_l
 int main(int argc, char **argv) {
   StringRef arch(argv[1]);
   StringRef input("-");
-  std::vector<byte> out_bytes; 
-  
+  std::vector<byte> out_bytes;
+
   assemble_llvm(arch, input, out_bytes);
 }
 */

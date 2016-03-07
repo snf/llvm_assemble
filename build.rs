@@ -41,14 +41,20 @@ fn main() {
     let out_obj = format!("{}/assemble.o", out_dir);
     let out_lib = format!("{}/libassemble.a", out_dir);
 
-    Command::new("g++").args(&["src/c/assemble.cc", "-c", "-fPIC", "-o"])
+    if !Command::new("g++").args(&["src/c/assemble.cc", "-g", "-c", "-fPIC", "-o"])
         .arg(&out_obj)
         .args(&llvm_cxxflags)
-        .status().unwrap();
+        .status().unwrap().success()
+    {
+        panic!("g++ failed to build");
+    }
 
-    Command::new("ar").args(&["crus", &out_lib, &out_obj])
-                      .current_dir(&Path::new(&out_dir))
-                      .status().unwrap();
+    if !Command::new("ar").args(&["crus", &out_lib, &out_obj])
+        .current_dir(&Path::new(&out_dir))
+        .status().unwrap().success()
+    {
+        panic!("ar failed to build");
+    }
 
     print!("cargo:rustc-flags=");
     for path in llvm_ldflags {
