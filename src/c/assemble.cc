@@ -25,6 +25,11 @@
 
 using namespace llvm;
 
+typedef struct {
+  size_t offset;
+  StringRef name;
+} Label;
+
 class MCBinaryStreamer: public MCStreamer {
 public:
   raw_pwrite_stream &OS;
@@ -32,6 +37,8 @@ public:
   std::unique_ptr<MCCodeEmitter> Emitter;
   std::unique_ptr<MCAsmBackend> AsmBackend;
   std::vector<byte> &OutMb;
+  std::vector<Label> VLabels;
+  std::vector<MCFixup> VFixups;
   bool *Failed;
   size_t pos = 0;
 
@@ -43,6 +50,15 @@ public:
     OS << '\n';
   }
 
+  void FinishImpl() {
+    for (Label label: VLabels) {
+      OS << "fixing label: " << label.name;
+      OS << " offset: " << label.offset;
+      OS << "\n";
+    }
+    OS << "finishing!";
+  }
+
   bool EmitSymbolAttribute(MCSymbol *Symbol,
 			   MCSymbolAttr Attribute) { return false; }
 
@@ -52,6 +68,20 @@ public:
   void EmitZerofill(MCSection *Section, MCSymbol *Symbol = nullptr,
 		    uint64_t Size = 0, unsigned ByteAlignment = 0) { }
 
+  void EmitLabel(MCSymbol *Symbol) {
+    Label label;
+    label.offset = pos;
+    label.name = Symbol->getName();
+    VLabels.push_back(label);
+
+    OS << "label!";
+    //OS << Symbol;
+    OS << "name: " << Symbol->getName() << " ";
+    OS << "offset: " << Symbol->getOffset() << " ";
+    OS << "idx: " << Symbol->getIndex() << " ";
+    OS << "\n";
+  }
+
   void EmitInstruction(const MCInst &Inst, const MCSubtargetInfo &STI) {
     OS << "instruction";
     OS << Inst << '\n';
@@ -59,7 +89,6 @@ public:
     SmallVector<MCFixup, 4> Fixups;
     raw_svector_ostream VecOS(Code);
     Emitter->encodeInstruction(Inst, VecOS, Fixups, STI);
-    VecOS.flush();
 
     // If we are showing fixups, create symbolic markers in the encoded
     // representation. We do this by making a per-bit map to the fixup item index,
@@ -69,20 +98,22 @@ public:
     for (unsigned i = 0, e = Code.size() * 8; i != e; ++i)
       FixupMap[i] = 0;
 
-    if (Fixups.size() != 0 || Code.size() == 0) {
-      *Failed = true;
-      return;
-    }
-    // XXX_ [0] disabling fixups because AsmBackend is null
-    // for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
-    //   MCFixup &F = Fixups[i];
-    //   const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
-    //   for (unsigned j = 0; j != Info.TargetSize; ++j) {
-    //     unsigned Index = F.getOffset() * 8 + Info.TargetOffset + j;
-    //     assert(Index < Code.size() * 8 && "Invalid offset in fixup!");
-    //     FixupMap[Index] = 1 + i;
-    //   }
+    // if (Fixups.size() != 0 || Code.size() == 0) {
+    //   std::cerr << std::endl << "fixups!" << std::endl;
+    //   *Failed = true;
+    //   return;
     // }
+
+    // XXX_ [0] disabling fixups because AsmBackend is null
+    for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
+      MCFixup &F = Fixups[i];
+      const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
+      for (unsigned j = 0; j != Info.TargetSize; ++j) {
+        unsigned Index = F.getOffset() * 8 + Info.TargetOffset + j;
+        assert(Index < Code.size() * 8 && "Invalid offset in fixup!");
+        FixupMap[Index] = 1 + i;
+      }
+    }
 
     // FIXME: Note the fixup comments for Thumb2 are completely bogus since the
     // high order halfword of a 32-bit Thumb2 instruction is emitted first.
@@ -91,7 +122,6 @@ public:
     for (unsigned i = 0, e = Code.size(); i != e; ++i) {
 
       // Copy to memory buffer
-      //OutMb[pos] = Code[i];
       OutMb.push_back(Code[i]);
 
       pos++;
@@ -143,12 +173,13 @@ public:
     OS << "]\n";
 
     // XXX_ disabling fixups because [0]
-    // for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
-    //   MCFixup &F = Fixups[i];
-    //   const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
-    //   OS << "  fixup " << char('A' + i) << " - " << "offset: " << F.getOffset()
-    //      << ", value: " << *F.getValue() << ", kind: " << Info.Name << "\n";
-    // }
+    for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
+      MCFixup &F = Fixups[i];
+      const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
+      OS << "  fixup " << char('A' + i) << " - " << "offset: " << F.getOffset()
+         << ", value: " << *F.getValue() << ", kind: " << Info.Name
+         << ", value_kind: " << cast<MCBinaryExpr>(F.getValue())->getLHS()->getKind() << "\n";
+    }
   }
 };
 
@@ -281,14 +312,14 @@ static int assemble_llvm(StringRef &arch, StringRef &input_str, std::vector<byte
   // Package up features to be passed to target/subtarget
   std::string FeaturesStr;
 
-  // std::unique_ptr<tool_output_file> Out = GetOutputStream();
-  // if (!Out)
-  //   return 1;
+  std::unique_ptr<tool_output_file> Out = GetOutputStream();
+  if (!Out)
+    return 1;
 
   raw_null_ostream Null;
 
-  //raw_pwrite_stream *OS = &Out->os();
-  raw_pwrite_stream *OS = &Null;
+  raw_pwrite_stream *OS = &Out->os();
+  //raw_pwrite_stream *OS = &Null;
 
   SmallVector<char, 0x100> AsmSV(0x100);
   raw_svector_ostream AsmS(AsmSV);
@@ -306,6 +337,7 @@ static int assemble_llvm(StringRef &arch, StringRef &input_str, std::vector<byte
   MCAsmBackend *MAB = nullptr;
 
   CE = TheTarget->createMCCodeEmitter(*MCII, *MRI, Ctx);
+  MAB = TheTarget->createMCAsmBackend(*MRI, TripleName, MCPU);
 
   auto FOut = llvm::make_unique<formatted_raw_ostream>(*OS);
 

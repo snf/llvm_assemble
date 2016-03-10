@@ -15,7 +15,7 @@ fn main() {
         if let Ok(v) = env::var("LLVM_CONFIG") {
             v
         } else {
-            "/home/asdf/local/bin/llvm-config".to_string()
+            "/home/asdf/local/3.8/bin/llvm-config".to_string()
         }
     };
 
