@@ -2,9 +2,12 @@
 extern "C" {
 #endif
 
+  #include <stdint.h>
   #include <stddef.h>
 
-  typedef unsigned char byte;
+  // #define DEBUG
+
+  typedef uint8_t byte;
 
   /*
     Supported archs by LLVM:
@@ -52,8 +55,13 @@ extern "C" {
     ppc32,
   };
 
+  typedef struct {
+    char *name;
+    uint64_t addr;
+  } Reloc_A;
+
   void free_vec(byte *vec);
-  int assemble(enum Arch arch, const char *instructions, byte **out, size_t *out_len);
+  int assemble(enum Arch arch, const char *instructions, const uint64_t addr, const Reloc_A *relocs, const size_t n_relocs, byte **out, size_t *out_len);
 
 #ifdef __cplusplus
 }

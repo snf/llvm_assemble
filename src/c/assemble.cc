@@ -3,6 +3,7 @@
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCFixupKindInfo.h"
 #include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCInstrInfo.h"
@@ -10,6 +11,7 @@
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCTargetAsmParser.h"
+#include "llvm/MC/MCValue.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/ManagedStatic.h"
@@ -25,38 +27,225 @@
 
 using namespace llvm;
 
+// Utils to evaluate MCExpr with Symbol
+
 typedef struct {
-  size_t offset;
   StringRef name;
-} Label;
+  uint64_t addr;
+} VReloc;
+
+typedef struct {
+  MCFixup fixup;
+  size_t start_offset;
+} VFixup;
+
 
 class MCBinaryStreamer: public MCStreamer {
 public:
-  raw_pwrite_stream &OS;
+  raw_ostream &OS;
   const MCAsmInfo *MAI;
   std::unique_ptr<MCCodeEmitter> Emitter;
   std::unique_ptr<MCAsmBackend> AsmBackend;
   std::vector<byte> &OutMb;
-  std::vector<Label> VLabels;
-  std::vector<MCFixup> VFixups;
+  std::vector<VFixup> VFixups;
+  std::vector<VReloc> ORelocs;
+  uint64_t Address;
+  const Reloc_A *Relocs;
+  size_t N_Relocs;
   bool *Failed;
   size_t pos = 0;
 
-  MCBinaryStreamer(MCContext &Context, MCAsmBackend *TAB, raw_pwrite_stream &OS,
-		   MCCodeEmitter *emitter, std::vector<byte> &out_mb, bool *failed)
+  MCBinaryStreamer(MCContext &Context, MCAsmBackend *TAB, raw_ostream &OS,
+		   MCCodeEmitter *emitter, uint64_t addr, const Reloc_A *relocs,
+                   size_t n_relocs, std::vector<byte> &out_mb, bool *failed)
     : MCStreamer(Context), OS(OS), MAI(Context.getAsmInfo()),
-      Emitter(emitter), AsmBackend(TAB), OutMb(out_mb), Failed(failed) {
+      Emitter(emitter), AsmBackend(TAB), OutMb(out_mb),
+      Address(addr), Relocs(relocs), N_Relocs(n_relocs),
+      Failed(failed)
+  {
     OS << "starting";
     OS << '\n';
   }
 
-  void FinishImpl() {
-    for (Label label: VLabels) {
-      OS << "fixing label: " << label.name;
-      OS << " offset: " << label.offset;
-      OS << "\n";
+  bool FindReloc(const char *name, int64_t *res) {
+    for(size_t i = 0; i < N_Relocs; i++) {
+      OS << Relocs[i].name << " ?= " << name << "\n";
+      if (strcmp(Relocs[i].name, name) == 0) {
+        *res = Relocs[i].addr;
+        return true;
+      }
     }
-    OS << "finishing!";
+    for(VReloc reloc: ORelocs) {
+      if (strcmp(reloc.name.data(), name) == 0) {
+        *res = reloc.addr;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool EvaluateFixup(VFixup *vfixup) {
+    const MCExpr *expr = vfixup->fixup.getValue();
+    const MCFixupKindInfo &Info =
+      AsmBackend->getFixupKindInfo(vfixup->fixup.getKind());
+    size_t offset = vfixup->start_offset + vfixup->fixup.getOffset();
+    int64_t res = 0;
+
+    if (EvaluateExpr(expr, &res)) {
+
+      OS << "evalExpr ret: " << res << "\n";
+      if (Info.Flags & MCFixupKindInfo::FKF_IsPCRel) {
+        res -= Address;
+        res -= offset;
+      }
+
+      int64_t mask = (1 << Info.TargetSize) - 1;
+      if (res > mask) {
+        OS << "fixup bigger than addr\n";
+        return false;
+      }
+      res &= mask;
+
+      OS << "after mask: " << res << "\n";
+      for(size_t i = 0; i < Info.TargetSize / 8; i++) {
+        size_t off = offset + i;
+        uint64_t b = (res & ((1 << ((i+1) * 8)) - 1)) >> i;
+        OS << "overwriting at off: " << off
+           << " with value: " << b << "\n";
+        OutMb[off] = b;
+      }
+
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  bool EvaluateExpr(const MCExpr *expr, int64_t *res) {
+    switch (expr->getKind()) {
+    case MCExpr::ExprKind::Target: {
+      // return cast<MCTargetExpr>(this)->evaluateAsRelocatableImpl(Res, Layout,
+      //                                                            Fixup);
+      llvm_unreachable("Target not supported");
+      return false;
+    }
+
+    case MCExpr::ExprKind::Constant: {
+      *res = cast<MCConstantExpr>(expr)->getValue();
+      return true;
+    }
+
+    case MCExpr::ExprKind::SymbolRef: {
+      const MCSymbolRefExpr *SRE = cast<MCSymbolRefExpr>(expr);
+      const MCSymbol &Sym = SRE->getSymbol();
+
+      const StringRef Name = Sym.getName();
+      if (FindReloc(Name.data(), res)) {
+        return true;
+      } else {
+        return false;
+      }
+      llvm_unreachable("SymbolRef not supported");
+      return -1;
+    }
+
+    case MCExpr::ExprKind::Unary: {
+      const MCUnaryExpr *AUE = cast<MCUnaryExpr>(expr);
+      int64_t Value;
+      // MCValue Value;
+
+      if (!EvaluateExpr(AUE->getSubExpr(), &Value)) {
+        return false;
+      }
+
+      switch (AUE->getOpcode()) {
+      case MCUnaryExpr::LNot:
+        *res = !Value;
+        break;
+      case MCUnaryExpr::Minus:
+        *res = -Value;
+        break;
+      case MCUnaryExpr::Not:
+        *res = ~Value;
+        break;
+      case MCUnaryExpr::Plus:
+        *res = Value;
+        break;
+      }
+      return true;
+    }
+
+    case MCExpr::ExprKind::Binary: {
+      const MCBinaryExpr *ABE = cast<MCBinaryExpr>(expr);
+      int64_t LHS, RHS;
+
+      if (!EvaluateExpr(ABE->getLHS(), &LHS) ||
+          !EvaluateExpr(ABE->getRHS(), &RHS)) {
+        return false;
+      }
+
+      // FIXME: We need target hooks for the evaluation. It may be limited in
+      // width, and gas defines the result of comparisons differently from
+      // Apple as.
+      switch (ABE->getOpcode()) {
+      case MCBinaryExpr::AShr: *res = LHS >> RHS; break;
+      case MCBinaryExpr::Add:  *res = LHS + RHS; break;
+      case MCBinaryExpr::And:  *res = LHS & RHS; break;
+      case MCBinaryExpr::Div:
+        // Handle division by zero. gas just emits a warning and keeps going,
+        // we try to be stricter.
+        // FIXME: Currently the caller of this function has no way to understand
+        // we're bailing out because of 'division by zero'. Therefore, it will
+        // emit a 'expected relocatable expression' error. It would be nice to
+        // change this code to emit a better diagnostic.
+        if (RHS == 0)
+          return false;
+        *res = LHS / RHS;
+        break;
+      case MCBinaryExpr::EQ:   *res = LHS == RHS; break;
+      case MCBinaryExpr::GT:   *res = LHS > RHS; break;
+      case MCBinaryExpr::GTE:  *res = LHS >= RHS; break;
+      case MCBinaryExpr::LAnd: *res = LHS && RHS; break;
+      case MCBinaryExpr::LOr:  *res = LHS || RHS; break;
+      case MCBinaryExpr::LShr: *res = uint64_t(LHS) >> uint64_t(RHS); break;
+      case MCBinaryExpr::LT:   *res = LHS < RHS; break;
+      case MCBinaryExpr::LTE:  *res = LHS <= RHS; break;
+      case MCBinaryExpr::Mod:  *res = LHS % RHS; break;
+      case MCBinaryExpr::Mul:  *res = LHS * RHS; break;
+      case MCBinaryExpr::NE:   *res = LHS != RHS; break;
+      case MCBinaryExpr::Or:   *res = LHS | RHS; break;
+      case MCBinaryExpr::Shl:  *res = uint64_t(LHS) << uint64_t(RHS); break;
+      case MCBinaryExpr::Sub:  *res = LHS - RHS; break;
+      case MCBinaryExpr::Xor:  *res = LHS ^ RHS; break;
+      }
+
+      return true;
+    }
+    }
+
+    llvm_unreachable("Invalid assembly expression kind!");
+    return false;
+  }
+
+  void FinishImpl() {
+    // for (Label label: VLabels) {
+    //   OS << "fixing label: " << label.name;
+    //   OS << " offset: " << label.offset;
+    //   OS << "\n";
+    // }
+    // OS << "finishing!";
+    //AsmBackend->getFixupKindInfo(F.getKind())
+    for (VFixup vfixup: VFixups) {
+      OS << "fixing: " << *vfixup.fixup.getValue()
+         << " offset: " << vfixup.fixup.getOffset()
+         << "\n";
+      if (!EvaluateFixup(&vfixup)) {
+        OS << "failed to set fixup\n";
+        *Failed = true;
+        return;
+      }
+    }
+    OS << "done!\n";
   }
 
   bool EmitSymbolAttribute(MCSymbol *Symbol,
@@ -69,17 +258,17 @@ public:
 		    uint64_t Size = 0, unsigned ByteAlignment = 0) { }
 
   void EmitLabel(MCSymbol *Symbol) {
-    Label label;
-    label.offset = pos;
-    label.name = Symbol->getName();
-    VLabels.push_back(label);
+    VReloc reloc;
+    reloc.name = Symbol->getName();
+    reloc.addr = Address + pos;
+    ORelocs.push_back(reloc);
 
-    OS << "label!";
-    //OS << Symbol;
-    OS << "name: " << Symbol->getName() << " ";
-    OS << "offset: " << Symbol->getOffset() << " ";
-    OS << "idx: " << Symbol->getIndex() << " ";
-    OS << "\n";
+    // OS << "label!";
+    // //OS << Symbol;
+    // OS << "name: " << Symbol->getName() << " ";
+    // OS << "offset: " << Symbol->getOffset() << " ";
+    // OS << "idx: " << Symbol->getIndex() << " ";
+    // OS << "\n";
   }
 
   void EmitInstruction(const MCInst &Inst, const MCSubtargetInfo &STI) {
@@ -104,8 +293,8 @@ public:
     //   return;
     // }
 
-    // XXX_ [0] disabling fixups because AsmBackend is null
     for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
+      // Check
       MCFixup &F = Fixups[i];
       const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
       for (unsigned j = 0; j != Info.TargetSize; ++j) {
@@ -113,6 +302,9 @@ public:
         assert(Index < Code.size() * 8 && "Invalid offset in fixup!");
         FixupMap[Index] = 1 + i;
       }
+      // Save the Fixup too
+      VFixup vfixup = { Fixups[i], pos };
+      VFixups.push_back(vfixup);
     }
 
     // FIXME: Note the fixup comments for Thumb2 are completely bogus since the
@@ -172,12 +364,13 @@ public:
     }
     OS << "]\n";
 
-    // XXX_ disabling fixups because [0]
     for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
       MCFixup &F = Fixups[i];
       const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
       OS << "  fixup " << char('A' + i) << " - " << "offset: " << F.getOffset()
          << ", value: " << *F.getValue() << ", kind: " << Info.Name
+         << ", TargetOffset: " << Info.TargetOffset
+         << ", TargetSize: " << Info.TargetSize
          << ", value_kind: " << cast<MCBinaryExpr>(F.getValue())->getLHS()->getKind() << "\n";
     }
   }
@@ -252,7 +445,10 @@ static int AssembleInput(const Target *TheTarget,
   return Res;
 }
 
-static int assemble_llvm(StringRef &arch, StringRef &input_str, std::vector<byte> &out_bytes) {
+static int assemble_llvm(StringRef &arch, StringRef &input_str, uint64_t address,
+                         const Reloc_A *relocs, size_t n_relocs,
+                         std::vector<byte> &out_bytes)
+{
   llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
 
   // Initialize targets and assembly printers/parsers.
@@ -312,14 +508,17 @@ static int assemble_llvm(StringRef &arch, StringRef &input_str, std::vector<byte
   // Package up features to be passed to target/subtarget
   std::string FeaturesStr;
 
+
+#ifdef DEBUG
+  raw_ostream &OS = errs();
+#elif defined FILE_DEBUG
   std::unique_ptr<tool_output_file> Out = GetOutputStream();
   if (!Out)
     return 1;
-
-  raw_null_ostream Null;
-
-  raw_pwrite_stream *OS = &Out->os();
-  //raw_pwrite_stream *OS = &Null;
+  raw_ostream &OS = Out->os();
+#else
+  raw_ostream &OS = nulls();
+#endif
 
   SmallVector<char, 0x100> AsmSV(0x100);
   raw_svector_ostream AsmS(AsmSV);
@@ -339,12 +538,12 @@ static int assemble_llvm(StringRef &arch, StringRef &input_str, std::vector<byte
   CE = TheTarget->createMCCodeEmitter(*MCII, *MRI, Ctx);
   MAB = TheTarget->createMCAsmBackend(*MRI, TripleName, MCPU);
 
-  auto FOut = llvm::make_unique<formatted_raw_ostream>(*OS);
-
   out_bytes.reserve(0x100);
 
   bool failed = false;
-  Str.reset(new MCBinaryStreamer(Ctx, MAB, *OS, CE, out_bytes, &failed));
+  Str.reset(new MCBinaryStreamer(Ctx, MAB, OS, CE, address,
+                                 relocs, n_relocs,
+                                 out_bytes, &failed));
 
   int Res = 1;
   // XXX_ remember the last arg is only for X86
@@ -362,7 +561,9 @@ void free_vec(byte *vec) {
   free(vec);
 }
 
-int assemble(enum Arch arch, const char *instructions, byte **out, size_t *out_len) {
+
+int assemble(enum Arch arch, const char *instructions, const uint64_t addr, const Reloc_A *relocs, const size_t n_relocs, byte **out, size_t *out_len) {
+
   StringRef s_arch;
   std::vector<byte> out_vec;
 
@@ -395,8 +596,9 @@ int assemble(enum Arch arch, const char *instructions, byte **out, size_t *out_l
   StringRef s_instructions(instructions);
 
   // If it somehow failed, abort
-  if (assemble_llvm(s_arch, s_instructions, out_vec) != 0) {
-    return -1;
+  if (assemble_llvm(s_arch, s_instructions, addr, relocs, n_relocs, out_vec) != 0)
+  {
+      return -1;
   }
 
   *out = (byte *)malloc(out_vec.size());
