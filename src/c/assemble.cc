@@ -363,7 +363,7 @@ public:
          << ", value: " << *F.getValue() << ", kind: " << Info.Name
          << ", TargetOffset: " << Info.TargetOffset
          << ", TargetSize: " << Info.TargetSize
-         << ", value_kind: " << cast<MCBinaryExpr>(F.getValue())->getLHS()->getKind() << "\n";
+        ;
     }
   }
 };
