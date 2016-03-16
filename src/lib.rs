@@ -14,6 +14,13 @@ fn x86_jcc() {
     assert_eq!(bytes, [0x90, 0x74, 0x02, 0x90, 0x90]);
 }
 
+
+#[test]
+fn x86_je() {
+    let bytes = assemble(Arch::X86_64, "je here;here:").unwrap();
+    assert_eq!(bytes, [0x74, 0x00]);
+}
+
 #[test]
 fn x86_jmp_rel() {
     let addr = 0x1000;
