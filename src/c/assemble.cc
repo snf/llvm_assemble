@@ -27,8 +27,6 @@
 
 using namespace llvm;
 
-// Utils to evaluate MCExpr with Symbol
-
 typedef struct {
   StringRef name;
   uint64_t addr;
@@ -183,20 +181,11 @@ public:
         return false;
       }
 
-      // FIXME: We need target hooks for the evaluation. It may be limited in
-      // width, and gas defines the result of comparisons differently from
-      // Apple as.
       switch (ABE->getOpcode()) {
       case MCBinaryExpr::AShr: *res = LHS >> RHS; break;
       case MCBinaryExpr::Add:  *res = LHS + RHS; break;
       case MCBinaryExpr::And:  *res = LHS & RHS; break;
       case MCBinaryExpr::Div:
-        // Handle division by zero. gas just emits a warning and keeps going,
-        // we try to be stricter.
-        // FIXME: Currently the caller of this function has no way to understand
-        // we're bailing out because of 'division by zero'. Therefore, it will
-        // emit a 'expected relocatable expression' error. It would be nice to
-        // change this code to emit a better diagnostic.
         if (RHS == 0)
           return false;
         *res = LHS / RHS;
@@ -227,13 +216,6 @@ public:
   }
 
   void FinishImpl() {
-    // for (Label label: VLabels) {
-    //   OS << "fixing label: " << label.name;
-    //   OS << " offset: " << label.offset;
-    //   OS << "\n";
-    // }
-    // OS << "finishing!";
-    //AsmBackend->getFixupKindInfo(F.getKind())
     for (VFixup vfixup: VFixups) {
       OS << "fixing: " << *vfixup.fixup.getValue()
          << " offset: " << vfixup.fixup.getOffset()
@@ -278,12 +260,6 @@ public:
     FixupMap.resize(Code.size() * 8);
     for (unsigned i = 0, e = Code.size() * 8; i != e; ++i)
       FixupMap[i] = 0;
-
-    // if (Fixups.size() != 0 || Code.size() == 0) {
-    //   std::cerr << std::endl << "fixups!" << std::endl;
-    //   *Failed = true;
-    //   return;
-    // }
 
     for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
       // Check
@@ -356,6 +332,7 @@ public:
     }
     OS << "]\n";
 
+    // Print the Fixups information
     for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
       MCFixup &F = Fixups[i];
       const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
@@ -538,6 +515,7 @@ static int assemble_llvm(StringRef &arch, StringRef &input_str, uint64_t address
                                  out_bytes, &failed));
 
   int Res = 1;
+
   // XXX_ remember the last arg is only for X86
   Res = AssembleInput(TheTarget, SrcMgr, Ctx, *Str, *MAI, *STI,
 		      *MCII, MCOptions, 1);
