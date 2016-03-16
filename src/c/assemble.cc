@@ -152,7 +152,6 @@ public:
     case MCExpr::ExprKind::Unary: {
       const MCUnaryExpr *AUE = cast<MCUnaryExpr>(expr);
       int64_t Value;
-      // MCValue Value;
 
       if (!EvaluateExpr(AUE->getSubExpr(), &Value)) {
         return false;
@@ -262,13 +261,6 @@ public:
     reloc.name = Symbol->getName();
     reloc.addr = Address + pos;
     ORelocs.push_back(reloc);
-
-    // OS << "label!";
-    // //OS << Symbol;
-    // OS << "name: " << Symbol->getName() << " ";
-    // OS << "offset: " << Symbol->getOffset() << " ";
-    // OS << "idx: " << Symbol->getIndex() << " ";
-    // OS << "\n";
   }
 
   void EmitInstruction(const MCInst &Inst, const MCSubtargetInfo &STI) {
