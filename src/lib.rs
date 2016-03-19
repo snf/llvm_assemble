@@ -10,28 +10,28 @@ fn x86_int3() {
 
 #[test]
 fn x86_jcc() {
-    let bytes = assemble(Arch::X86_64, "nop; jz here; nop; nop; here:").unwrap();
+    let bytes = assemble(Arch::X86_64, "nop; jz label0; nop; nop; label0:").unwrap();
     assert_eq!(bytes, [0x90, 0x74, 0x02, 0x90, 0x90]);
 }
 
 
 #[test]
 fn x86_je() {
-    let bytes = assemble(Arch::X86_64, "je here;here:").unwrap();
+    let bytes = assemble(Arch::X86_64, "je label0;label0:").unwrap();
     assert_eq!(bytes, [0x74, 0x00]);
 }
 
 #[test]
 fn x86_jmp_rel() {
     let addr = 0x1000;
-    let reloc = Reloc::new("here", 0x1003);
-    let bytes = assemble2(Arch::X86_64, "jmp here", addr, &[reloc]).unwrap();
+    let reloc = Reloc::new("label0", 0x1003);
+    let bytes = assemble2(Arch::X86_64, "jmp label0", addr, &[reloc]).unwrap();
     assert_eq!(bytes, [0xeb, 0x01]);
 }
 
 #[test]
 fn missing_label() {
-    assert_eq!(assemble(Arch::X86_64, "jz here"), None);
+    assert_eq!(assemble(Arch::X86_64, "jz label0"), None);
 }
 
 #[test]
