@@ -516,9 +516,13 @@ static int assemble_llvm(StringRef &arch, StringRef &input_str, uint64_t address
 
   int Res = 1;
 
-  // XXX_ remember the last arg is only for X86
+  unsigned AsmDialect = 0;
+  if (arch.equals(StringRef("x86")) || arch.equals(StringRef("x86-64"))) {
+    AsmDialect = 1;
+  }
+
   Res = AssembleInput(TheTarget, SrcMgr, Ctx, *Str, *MAI, *STI,
-		      *MCII, MCOptions, 1);
+		      *MCII, MCOptions, AsmDialect);
 
   if (failed == true) {
     return -1;
