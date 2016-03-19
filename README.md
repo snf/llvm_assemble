@@ -67,5 +67,6 @@ fn main() {
 
 ## Full disclosure
 
-It works but is not really tested in architectures other than x86,
-x86_64 and ARM.
+This was coded as a part of a bigger project and while it works, it is
+not really tested in architectures other than x86, x86_64 and ARM. Use
+at your own risk of finding bugs.
