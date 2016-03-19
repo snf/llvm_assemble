@@ -24,8 +24,8 @@ fn x86_je() {
 #[test]
 fn x86_jmp_rel() {
     let addr = 0x1000;
-    let reloc = Reloc::new("label0", 0x1003);
-    let bytes = assemble2(Arch::X86_64, "jmp label0", addr, &[reloc]).unwrap();
+    let label0 = Reloc::new("label0", 0x1003);
+    let bytes = assemble2(Arch::X86_64, "jmp label0", addr, &[label0]).unwrap();
     assert_eq!(bytes, [0xeb, 0x01]);
 }
 
