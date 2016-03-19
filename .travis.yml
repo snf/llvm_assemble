@@ -1,7 +1,8 @@
+dist: trusty
 before_script:
   - sudo add-apt-repository "deb http://llvm.org/apt/trusty/ llvm-toolchain-trusty main" -y
   - sudo apt-get update -q
-  - sudo apt-get install -y g++ libz-dev libedit-dev llvm-3.8
+  - sudo apt-get install -y g++ libz-dev libedit-dev llvm-3.8-dev
 
 language: rust
 rust:
