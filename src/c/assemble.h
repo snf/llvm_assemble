@@ -49,10 +49,15 @@ extern "C" {
     x86,
     x86_64,
     mips,
+    mipsel,
     arm,
-    arm64,
+    armeb,
     thumb,
+    arm64,
     ppc32,
+    ppc64,
+    sparc,
+    systemz
   };
 
   typedef struct {

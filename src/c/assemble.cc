@@ -551,8 +551,14 @@ int assemble(enum Arch arch, const char *instructions, const uint64_t addr, cons
   case mips:
     s_arch = "mips";
     break;
+  case mipsel:
+    s_arch = "mipsel";
+    break;
   case arm:
     s_arch = "arm";
+    break;
+  case armeb:
+    s_arch = "armeb";
     break;
   case arm64:
     s_arch = "arm64";
@@ -562,6 +568,15 @@ int assemble(enum Arch arch, const char *instructions, const uint64_t addr, cons
     break;
   case ppc32:
     s_arch = "ppc32";
+    break;
+  case ppc64:
+    s_arch = "ppc64";
+    break;
+  case sparc:
+    s_arch = "sparc";
+    break;
+  case systemz:
+    s_arch = "systemz";
     break;
   default:
     return -1;

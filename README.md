@@ -9,6 +9,9 @@ It (ab)uses LLVM architecture to insert a BinaryStreamer during the
 ASM parsing run and output the binary code to a buffer instead of an
 object file. It supports inline and external labels/relocations too.
 
+It supports x86, x86-64, Arm, Armeb, Arm64, Thumb, Mips, Mipsel,
+PowerPC, PowerPC64, Sparc and SystemZ.
+
 ## Use it
 
 It depends on LLVM >= 3.7, zlib and libedit.

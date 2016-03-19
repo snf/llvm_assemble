@@ -39,10 +39,15 @@ mod extern_def {
     pub const x86: ::libc::c_uint = 0;
     pub const x86_64: ::libc::c_uint = 1;
     pub const mips: ::libc::c_uint = 2;
-    pub const arm: ::libc::c_uint = 3;
-    pub const arm64: ::libc::c_uint = 4;
-    pub const thumb: ::libc::c_uint = 5;
-    pub const ppc32: ::libc::c_uint = 6;
+    pub const mipsel: ::libc::c_uint = 3;
+    pub const arm: ::libc::c_uint = 4;
+    pub const armeb: ::libc::c_uint = 5;
+    pub const thumb: ::libc::c_uint = 6;
+    pub const arm64: ::libc::c_uint = 7;
+    pub const ppc32: ::libc::c_uint = 8;
+    pub const ppc64: ::libc::c_uint = 9;
+    pub const sparc: ::libc::c_uint = 10;
+    pub const systemz: ::libc::c_uint = 11;
     #[repr(C)]
     #[derive(Copy)]
     pub struct Struct_Unnamed1 {
@@ -70,10 +75,15 @@ pub enum Arch {
     X86,
     X86_64,
     Mips,
+    Mipsel,
     Arm,
+    Armeb,
     Arm64,
     Thumb,
-    PPC32
+    PPC32,
+    PPC64,
+    Sparc,
+    SystemZ
 }
 
 impl Arch {
@@ -82,10 +92,15 @@ impl Arch {
             Arch::X86 => extern_def::x86,
             Arch::X86_64 => extern_def::x86_64,
             Arch::Mips => extern_def::mips,
+            Arch::Mipsel => extern_def::mipsel,
             Arch::Arm => extern_def::arm,
+            Arch::Armeb => extern_def::armeb,
             Arch::Arm64 => extern_def::arm64,
             Arch::Thumb => extern_def::thumb,
-            Arch::PPC32 => extern_def::ppc32
+            Arch::PPC32 => extern_def::ppc32,
+            Arch::PPC64 => extern_def::ppc64,
+            Arch::Sparc => extern_def::sparc,
+            Arch::SystemZ => extern_def::systemz
         }
     }
 }
