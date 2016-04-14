@@ -58,7 +58,7 @@ fn main() {
 
     print!("cargo:rustc-flags=");
     for path in llvm_ldflags {
-        print!("-L {} ", &path[2..]);
+        print!("-L native={} ", &path[2..]);
     }
     for lib in llvm_libs {
         print!("-l {} ", &lib[2..]);
